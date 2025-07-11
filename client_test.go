@@ -77,7 +77,7 @@ func TestClient_authenticate(t *testing.T) {
 					assert.Equal(t, "POST", r.Method)
 
 					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(map[string]interface{}{
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{
 						"access_token": "test-token",
 						"expires_in":   3600,
 						"token_type":   "Bearer",
@@ -91,7 +91,7 @@ func TestClient_authenticate(t *testing.T) {
 			setupServer: func() *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(http.StatusUnauthorized)
-					w.Write([]byte("Invalid credentials"))
+					_, _ = w.Write([]byte("Invalid credentials"))
 				}))
 			},
 			wantErr:     true,
@@ -172,9 +172,9 @@ func makeBody(v interface{}) io.ReadCloser {
 	case string:
 		buf.WriteString(val)
 	case map[string]interface{}:
-		json.NewEncoder(&buf).Encode(val)
+		_ = json.NewEncoder(&buf).Encode(val)
 	default:
-		json.NewEncoder(&buf).Encode(v)
+		_ = json.NewEncoder(&buf).Encode(v)
 	}
 	return io.NopCloser(&buf)
 }

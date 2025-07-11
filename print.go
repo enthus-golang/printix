@@ -118,7 +118,9 @@ func (c *Client) UploadDocument(ctx context.Context, uploadLink string, headers 
 	if err != nil {
 		return fmt.Errorf("uploading document: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		body, err := io.ReadAll(resp.Body)

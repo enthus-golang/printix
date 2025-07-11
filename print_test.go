@@ -32,17 +32,17 @@ func TestClient_Submit(t *testing.T) {
 				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch r.URL.Path {
 					case "/oauth/token":
-						json.NewEncoder(w).Encode(map[string]interface{}{
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
 							"access_token": "test-token",
 							"expires_in":   3600,
 						})
 					case "/cloudprint/tenants/test-tenant/printers/printer-123/jobs":
 						var req map[string]interface{}
-						json.NewDecoder(r.Body).Decode(&req)
+						_ = json.NewDecoder(r.Body).Decode(&req)
 
 						assert.Equal(t, "Test Document", req["title"])
 
-						json.NewEncoder(w).Encode(map[string]interface{}{
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
 							"success": true,
 							"jobId":   "job-456",
 							"uploadLinks": []map[string]interface{}{
@@ -105,14 +105,14 @@ func TestClient_Submit(t *testing.T) {
 				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch r.URL.Path {
 					case "/oauth/token":
-						json.NewEncoder(w).Encode(map[string]interface{}{
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
 							"access_token": "test-token",
 							"expires_in":   3600,
 						})
 					case "/cloudprint/tenants/test-tenant/printers/printer-123/jobs":
 						assert.Equal(t, "true", r.URL.Query().Get("test"))
 
-						json.NewEncoder(w).Encode(map[string]interface{}{
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
 							"success": true,
 							"jobId":   "test-job-789",
 							"uploadLinks": []map[string]interface{}{
@@ -173,12 +173,12 @@ func TestClient_Submit(t *testing.T) {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch r.URL.Path {
 					case "/oauth/token":
-						json.NewEncoder(w).Encode(map[string]interface{}{
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
 							"access_token": "test-token",
 							"expires_in":   3600,
 						})
 					case "/cloudprint/tenants/test-tenant/printers/printer-123/jobs":
-						json.NewEncoder(w).Encode(map[string]interface{}{
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
 							"success":          false,
 							"errorDescription": "Printer not found",
 							"errorId":          "ERR001",
@@ -232,12 +232,12 @@ func TestClient_CompleteUpload(t *testing.T) {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch r.URL.Path {
 					case "/oauth/token":
-						json.NewEncoder(w).Encode(map[string]interface{}{
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
 							"access_token": "test-token",
 							"expires_in":   3600,
 						})
 					case "/cloudprint/jobs/job-123/uploadCompleted":
-						json.NewEncoder(w).Encode(map[string]interface{}{
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
 							"success": true,
 						})
 					}
@@ -252,12 +252,12 @@ func TestClient_CompleteUpload(t *testing.T) {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch r.URL.Path {
 					case "/oauth/token":
-						json.NewEncoder(w).Encode(map[string]interface{}{
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
 							"access_token": "test-token",
 							"expires_in":   3600,
 						})
 					case "/cloudprint/jobs/job-123/uploadCompleted":
-						json.NewEncoder(w).Encode(map[string]interface{}{
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
 							"success":          false,
 							"errorDescription": "Job not found",
 							"errorId":          "ERR002",
