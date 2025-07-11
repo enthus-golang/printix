@@ -149,3 +149,28 @@ func (c *Client) CancelJob(ctx context.Context, jobID string) error {
 
 	return nil
 }
+
+// DeleteJob deletes a print job.
+func (c *Client) DeleteJob(ctx context.Context, jobID string) error {
+	if c.tenantID == "" {
+		return fmt.Errorf("tenant ID is required for deleting job")
+	}
+
+	endpoint := fmt.Sprintf("%s/%s", fmt.Sprintf(jobsEndpoint, c.tenantID), jobID)
+
+	resp, err := c.doRequest(ctx, http.MethodDelete, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("deleting job: %w", err)
+	}
+
+	var deleteResp Response
+	if err := parseResponse(resp, &deleteResp); err != nil {
+		return fmt.Errorf("parsing delete response: %w", err)
+	}
+
+	if !deleteResp.Success {
+		return fmt.Errorf("delete job failed: %s (error ID: %s)", deleteResp.ErrorDescription, deleteResp.ErrorID)
+	}
+
+	return nil
+}

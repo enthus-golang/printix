@@ -10,15 +10,21 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // WebhookEvent represents a Printix webhook event.
 type WebhookEvent struct {
-	ID        string          `json:"id"`
-	Type      string          `json:"type"`
-	Timestamp time.Time       `json:"timestamp"`
-	Data      json.RawMessage `json:"data"`
+	Name string `json:"name"` // e.g., "RESOURCE.TENANT_USER.CREATE"
+	Href string `json:"href"` // Link to the resource
+	Time float64 `json:"time"` // Unix timestamp with milliseconds
+}
+
+// WebhookPayload represents the full webhook payload.
+type WebhookPayload struct {
+	Emitted float64        `json:"emitted"` // Unix timestamp when webhook was emitted
+	Events  []WebhookEvent `json:"events"`  // Array of events
 }
 
 // WebhookJobStatusChange represents a job status change event.
@@ -105,25 +111,26 @@ func (v *WebhookValidator) verifySignature(payload, signature, secret string) bo
 	return hmac.Equal([]byte(signature), []byte(expectedSignature))
 }
 
-// ParseWebhookEvent parses a webhook event from the request body.
-func ParseWebhookEvent(r *http.Request) (*WebhookEvent, error) {
-	var event WebhookEvent
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
-		return nil, fmt.Errorf("decoding webhook event: %w", err)
+// ParseWebhookPayload parses a webhook payload from the request body.
+func ParseWebhookPayload(r *http.Request) (*WebhookPayload, error) {
+	var payload WebhookPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decoding webhook payload: %w", err)
 	}
-	return &event, nil
+	return &payload, nil
 }
 
-// ParseJobStatusChange parses job status change data from webhook event.
-func ParseJobStatusChange(event *WebhookEvent) (*WebhookJobStatusChange, error) {
-	if event.Type != "job.status.changed" {
-		return nil, fmt.Errorf("incorrect event type: %s", event.Type)
-	}
+// IsUserCreateEvent checks if the event is a user creation event.
+func (e *WebhookEvent) IsUserCreateEvent() bool {
+	return e.Name == "RESOURCE.TENANT_USER.CREATE"
+}
 
-	var data WebhookJobStatusChange
-	if err := json.Unmarshal(event.Data, &data); err != nil {
-		return nil, fmt.Errorf("parsing job status change: %w", err)
-	}
+// IsJobStatusChangeEvent checks if the event is a job status change event.
+func (e *WebhookEvent) IsJobStatusChangeEvent() bool {
+	return strings.Contains(e.Name, "JOB") && strings.Contains(e.Name, "STATUS")
+}
 
-	return &data, nil
+// GetTimestamp returns the event timestamp as a time.Time.
+func (e *WebhookEvent) GetTimestamp() time.Time {
+	return time.Unix(int64(e.Time), int64((e.Time-float64(int64(e.Time)))*1e9))
 }

@@ -149,8 +149,8 @@ func (c *Client) authenticate(ctx context.Context) error {
 	return nil
 }
 
-// doRequest performs an authenticated HTTP request.
-func (c *Client) doRequest(ctx context.Context, method, endpoint string, body any) (*http.Response, error) {
+// doRequestWithHeaders performs an authenticated HTTP request with custom headers.
+func (c *Client) doRequestWithHeaders(ctx context.Context, method, endpoint string, body any, customHeaders map[string]string) (*http.Response, error) {
 	// For absolute URLs (like HAL links), use them directly
 	fullURL := endpoint
 	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
@@ -179,6 +179,11 @@ func (c *Client) doRequest(ctx context.Context, method, endpoint string, body an
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	
+	// Add custom headers
+	for key, value := range customHeaders {
+		req.Header.Set(key, value)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -198,6 +203,11 @@ func (c *Client) doRequest(ctx context.Context, method, endpoint string, body an
 	}
 
 	return resp, nil
+}
+
+// doRequest performs an authenticated HTTP request.
+func (c *Client) doRequest(ctx context.Context, method, endpoint string, body any) (*http.Response, error) {
+	return c.doRequestWithHeaders(ctx, method, endpoint, body, nil)
 }
 
 // Response represents a generic API response.

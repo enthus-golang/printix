@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha512"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -154,24 +153,34 @@ func TestWebhookValidator_KeyRotation(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestParseWebhookEvent(t *testing.T) {
+func TestParseWebhookPayload(t *testing.T) {
 	tests := []struct {
 		name    string
 		body    string
-		want    *WebhookEvent
+		want    *WebhookPayload
 		wantErr bool
 	}{
 		{
-			name: "valid event",
+			name: "valid payload",
 			body: `{
-				"id": "evt-123",
-				"type": "job.status.changed",
-				"timestamp": "2023-01-01T00:00:00Z",
-				"data": {"jobId": "job-456"}
+				"emitted": 1718093846.488,
+				"events": [
+					{
+						"name": "RESOURCE.TENANT_USER.CREATE",
+						"href": "https://api.printix.net/cloudprint/tenants/123/users/456",
+						"time": 1718093846.488
+					}
+				]
 			}`,
-			want: &WebhookEvent{
-				ID:   "evt-123",
-				Type: "job.status.changed",
+			want: &WebhookPayload{
+				Emitted: 1718093846.488,
+				Events: []WebhookEvent{
+					{
+						Name: "RESOURCE.TENANT_USER.CREATE",
+						Href: "https://api.printix.net/cloudprint/tenants/123/users/456",
+						Time: 1718093846.488,
+					},
+				},
 			},
 			wantErr: false,
 		},
@@ -185,76 +194,57 @@ func TestParseWebhookEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest("POST", "/webhook", bytes.NewBufferString(tt.body))
-			got, err := ParseWebhookEvent(req)
+			got, err := ParseWebhookPayload(req)
 
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.want.ID, got.ID)
-				assert.Equal(t, tt.want.Type, got.Type)
+				assert.Equal(t, tt.want.Emitted, got.Emitted)
+				assert.Equal(t, len(tt.want.Events), len(got.Events))
+				if len(got.Events) > 0 {
+					assert.Equal(t, tt.want.Events[0].Name, got.Events[0].Name)
+					assert.Equal(t, tt.want.Events[0].Href, got.Events[0].Href)
+				}
 			}
 		})
 	}
 }
 
-func TestParseJobStatusChange(t *testing.T) {
+func TestWebhookEventMethods(t *testing.T) {
 	tests := []struct {
-		name    string
-		event   *WebhookEvent
-		want    *WebhookJobStatusChange
-		wantErr bool
+		name  string
+		event WebhookEvent
+		want  bool
 	}{
 		{
-			name: "valid job status change",
-			event: &WebhookEvent{
-				Type: "job.status.changed",
-				Data: json.RawMessage(`{
-					"jobId": "job-123",
-					"printerId": "printer-456",
-					"status": "completed",
-					"message": "Print completed successfully"
-				}`),
+			name: "user create event",
+			event: WebhookEvent{
+				Name: "RESOURCE.TENANT_USER.CREATE",
+				Href: "https://api.printix.net/cloudprint/tenants/123/users/456",
+				Time: 1718093846.488,
 			},
-			want: &WebhookJobStatusChange{
-				JobID:     "job-123",
-				PrinterID: "printer-456",
-				Status:    "completed",
-				Message:   "Print completed successfully",
-			},
-			wantErr: false,
+			want: true,
 		},
 		{
-			name: "wrong event type",
-			event: &WebhookEvent{
-				Type: "printer.online",
-				Data: json.RawMessage(`{}`),
+			name: "other event",
+			event: WebhookEvent{
+				Name: "RESOURCE.PRINTER.UPDATE",
+				Href: "https://api.printix.net/cloudprint/tenants/123/printers/456",
+				Time: 1718093846.488,
 			},
-			wantErr: true,
-		},
-		{
-			name: "invalid data",
-			event: &WebhookEvent{
-				Type: "job.status.changed",
-				Data: json.RawMessage(`{invalid json}`),
-			},
-			wantErr: true,
+			want: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseJobStatusChange(tt.event)
-
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.want.JobID, got.JobID)
-				assert.Equal(t, tt.want.PrinterID, got.PrinterID)
-				assert.Equal(t, tt.want.Status, got.Status)
-				assert.Equal(t, tt.want.Message, got.Message)
-			}
+			got := tt.event.IsUserCreateEvent()
+			assert.Equal(t, tt.want, got)
+			
+			// Test timestamp conversion
+			timestamp := tt.event.GetTimestamp()
+			assert.True(t, timestamp.Unix() > 0)
 		})
 	}
 }

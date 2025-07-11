@@ -6,24 +6,40 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 )
 
 // PrintJob represents a print job submission.
 type PrintJob struct {
-	PrinterID     string         `json:"printerId"`
-	Title         string         `json:"title"`
-	ContentType   string         `json:"contentType,omitempty"`
-	Source        string         `json:"source,omitempty"`
-	JobProperties map[string]any `json:"jobProperties,omitempty"`
-	TestMode      bool           `json:"-"` // Not sent to API
+	PrinterID     string         `json:"-"` // Not sent in body, used in URL
+	Title         string         `json:"title,omitempty"`
+	User          string         `json:"user,omitempty"`
+	PDL           string         `json:"PDL,omitempty"`
+	// v1.1 properties
+	Color           *bool  `json:"color,omitempty"`
+	Duplex          string `json:"duplex,omitempty"`      // NONE, SHORT_EDGE, LONG_EDGE
+	PageOrientation string `json:"page_orientation,omitempty"` // PORTRAIT, LANDSCAPE, AUTO
+	Copies          *int   `json:"copies,omitempty"`
+	MediaSize       string `json:"media_size,omitempty"`
+	Scaling         string `json:"scaling,omitempty"`     // NOSCALE, SHRINK, FIT
+	TestMode        bool   `json:"-"`                     // Not sent to API
+	UseV11          bool   `json:"-"`                     // Use v1.1 API
 }
 
 // SubmitResponse represents the response from submitting a print job.
 type SubmitResponse struct {
 	Response
-	JobID       string `json:"jobId"`
+	Job struct {
+		ID          string `json:"id"`
+		CreateTime  int64  `json:"createTime"`
+		UpdateTime  int64  `json:"updateTime"`
+		Status      string `json:"status"`
+		OwnerID     string `json:"ownerId"`
+		ContentType string `json:"contentType"`
+		Title       string `json:"title"`
+	} `json:"job"`
 	UploadLinks []struct {
 		URL     string            `json:"url"`
 		Headers map[string]string `json:"headers"`
@@ -60,27 +76,62 @@ func (c *Client) Submit(ctx context.Context, job *PrintJob) (*SubmitResponse, er
 	}
 
 	endpoint := fmt.Sprintf(submitEndpoint, c.tenantID, job.PrinterID)
+	
+	// Add query parameters
+	params := url.Values{}
+	if job.Title != "" {
+		params.Set("title", job.Title)
+	}
+	if job.User != "" {
+		params.Set("user", job.User)
+	}
+	if job.PDL != "" {
+		params.Set("PDL", job.PDL)
+	}
 	if c.testMode || job.TestMode {
-		endpoint += "?test=true"
+		params.Set("test", "true")
+	}
+	
+	if len(params) > 0 {
+		endpoint += "?" + params.Encode()
 	}
 
-	// Build job properties
-	jobReq := map[string]any{
-		"title":  job.Title,
-		"source": job.Source,
+	var requestBody any
+	headers := make(map[string]string)
+	
+	// Use v1.1 if specified or if any v1.1 properties are set
+	if job.UseV11 || job.Color != nil || job.Duplex != "" || job.PageOrientation != "" || 
+	   job.Copies != nil || job.MediaSize != "" || job.Scaling != "" {
+		headers["version"] = "1.1"
+		headers["Content-Type"] = "application/json"
+		
+		// Build v1.1 request body
+		v11Body := make(map[string]any)
+		if job.Color != nil {
+			v11Body["color"] = *job.Color
+		}
+		if job.Duplex != "" {
+			v11Body["duplex"] = job.Duplex
+		}
+		if job.PageOrientation != "" {
+			v11Body["page_orientation"] = job.PageOrientation
+		}
+		if job.Copies != nil {
+			v11Body["copies"] = *job.Copies
+		}
+		if job.MediaSize != "" {
+			v11Body["media_size"] = job.MediaSize
+		}
+		if job.Scaling != "" {
+			v11Body["scaling"] = job.Scaling
+		}
+		
+		if len(v11Body) > 0 {
+			requestBody = v11Body
+		}
 	}
 
-	// Add optional properties
-	if job.ContentType != "" {
-		jobReq["contentType"] = job.ContentType
-	}
-
-	// Merge job properties
-	for k, v := range job.JobProperties {
-		jobReq[k] = v
-	}
-
-	resp, err := c.doRequest(ctx, http.MethodPost, endpoint, jobReq)
+	resp, err := c.doRequestWithHeaders(ctx, http.MethodPost, endpoint, requestBody, headers)
 	if err != nil {
 		return nil, fmt.Errorf("submitting job: %w", err)
 	}
@@ -161,48 +212,55 @@ func (c *Client) PrintFile(ctx context.Context, printerID, title, filePath strin
 		return fmt.Errorf("reading file: %w", err)
 	}
 
-	// Determine content type
-	contentType := "application/pdf"
+	// Determine PDL based on file extension
+	var pdl string
 	if len(filePath) > 4 {
 		switch filePath[len(filePath)-4:] {
 		case ".zpl":
-			contentType = "application/zpl"
+			pdl = "ZPL"
 		case ".pcl":
-			contentType = "application/vnd.hp-PCL"
+			pdl = "PCL5"
 		case ".ps":
-			contentType = "application/postscript"
+			pdl = "POSTSCRIPT"
 		case ".xps":
-			contentType = "application/vnd.ms-xpsdocument"
-		case ".txt":
-			contentType = "text/plain"
+			pdl = "XPS"
 		}
 	}
 
 	// Create print job
 	job := &PrintJob{
-		PrinterID:   printerID,
-		Title:       title,
-		ContentType: contentType,
-		Source:      "MTS API",
-		TestMode:    c.testMode,
+		PrinterID: printerID,
+		Title:     title,
+		User:      "MTS API",
+		PDL:       pdl,
+		TestMode:  c.testMode,
 	}
 
-	// Add options if provided
+	// Add options if provided  
 	if options != nil {
-		job.JobProperties = make(map[string]any)
+		job.UseV11 = true
 		if options.Copies > 0 {
-			job.JobProperties["copies"] = options.Copies
+			job.Copies = &options.Copies
 		}
-		if options.Duplex != "" {
-			job.JobProperties["duplex"] = options.Duplex
+		if options.Color {
+			job.Color = &options.Color
 		}
-		if options.PageRange != "" {
-			job.JobProperties["pageRange"] = options.PageRange
+		// Map old duplex values to new format
+		switch options.Duplex {
+		case "none":
+			job.Duplex = "NONE"
+		case "long-edge":
+			job.Duplex = "LONG_EDGE"
+		case "short-edge":
+			job.Duplex = "SHORT_EDGE"
 		}
-		if options.Orientation != "" {
-			job.JobProperties["orientation"] = options.Orientation
+		// Map old orientation to new format
+		switch options.Orientation {
+		case "portrait":
+			job.PageOrientation = "PORTRAIT"
+		case "landscape":
+			job.PageOrientation = "LANDSCAPE"
 		}
-		job.JobProperties["color"] = options.Color
 	}
 
 	// Submit the job
@@ -230,32 +288,41 @@ func (c *Client) PrintFile(ctx context.Context, printerID, title, filePath strin
 }
 
 // PrintData prints raw data using Printix.
-func (c *Client) PrintData(ctx context.Context, printerID, title string, data []byte, contentType string, options *PrintOptions) error {
+func (c *Client) PrintData(ctx context.Context, printerID, title string, data []byte, pdl string, options *PrintOptions) error {
 	// Create print job
 	job := &PrintJob{
-		PrinterID:   printerID,
-		Title:       title,
-		ContentType: contentType,
-		Source:      "MTS API",
-		TestMode:    c.testMode,
+		PrinterID: printerID,
+		Title:     title,
+		User:      "MTS API",
+		PDL:       pdl,
+		TestMode:  c.testMode,
 	}
 
-	// Add options if provided
+	// Add options if provided  
 	if options != nil {
-		job.JobProperties = make(map[string]any)
+		job.UseV11 = true
 		if options.Copies > 0 {
-			job.JobProperties["copies"] = options.Copies
+			job.Copies = &options.Copies
 		}
-		if options.Duplex != "" {
-			job.JobProperties["duplex"] = options.Duplex
+		if options.Color {
+			job.Color = &options.Color
 		}
-		if options.PageRange != "" {
-			job.JobProperties["pageRange"] = options.PageRange
+		// Map old duplex values to new format
+		switch options.Duplex {
+		case "none":
+			job.Duplex = "NONE"
+		case "long-edge":
+			job.Duplex = "LONG_EDGE"
+		case "short-edge":
+			job.Duplex = "SHORT_EDGE"
 		}
-		if options.Orientation != "" {
-			job.JobProperties["orientation"] = options.Orientation
+		// Map old orientation to new format
+		switch options.Orientation {
+		case "portrait":
+			job.PageOrientation = "PORTRAIT"
+		case "landscape":
+			job.PageOrientation = "LANDSCAPE"
 		}
-		job.JobProperties["color"] = options.Color
 	}
 
 	// Submit the job

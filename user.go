@@ -13,8 +13,12 @@ type User struct {
 	ID          string         `json:"id"`
 	Email       string         `json:"email"`
 	Name        string         `json:"name,omitempty"`
+	FullName    string         `json:"fullName,omitempty"`  // For guest users
 	UserName    string         `json:"userName,omitempty"`
 	DisplayName string         `json:"displayName,omitempty"`
+	Role        string         `json:"role,omitempty"`      // e.g., "GUEST_USER"
+	PIN         string         `json:"pin,omitempty"`       // 4-digit PIN for guest users
+	Password    string         `json:"password,omitempty"`  // Password for guest users
 	Active      bool           `json:"active"`
 	Created     string         `json:"created,omitempty"`
 	Updated     string         `json:"updated,omitempty"`

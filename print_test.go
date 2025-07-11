@@ -25,7 +25,7 @@ func TestClient_Submit(t *testing.T) {
 			job: &PrintJob{
 				PrinterID: "printer-123",
 				Title:     "Test Document",
-				Source:    "Test",
+				User:      "Test",
 			},
 			setupServer: func() *httptest.Server {
 				var server *httptest.Server
@@ -37,14 +37,21 @@ func TestClient_Submit(t *testing.T) {
 							"expires_in":   3600,
 						})
 					case "/cloudprint/tenants/test-tenant/printers/printer-123/jobs":
-						var req map[string]interface{}
-						_ = json.NewDecoder(r.Body).Decode(&req)
-
-						assert.Equal(t, "Test Document", req["title"])
+						// Check query parameters instead of body for v1.0 API
+						assert.Equal(t, "Test Document", r.URL.Query().Get("title"))
+						assert.Equal(t, "Test", r.URL.Query().Get("user"))
 
 						_ = json.NewEncoder(w).Encode(map[string]interface{}{
 							"success": true,
-							"jobId":   "job-456",
+							"job": map[string]interface{}{
+								"id":          "job-456",
+								"createTime":  1600344674,
+								"updateTime":  1600344674,
+								"status":      "Created",
+								"ownerId":     "owner-123",
+								"contentType": "application/pdf",
+								"title":       "Test Document",
+							},
 							"uploadLinks": []map[string]interface{}{
 								{
 									"url":     "https://storage.example.com/upload",
@@ -64,7 +71,19 @@ func TestClient_Submit(t *testing.T) {
 			},
 			want: &SubmitResponse{
 				Response: Response{Success: true},
-				JobID:    "job-456",
+				Job: struct {
+					ID          string `json:"id"`
+					CreateTime  int64  `json:"createTime"`
+					UpdateTime  int64  `json:"updateTime"`
+					Status      string `json:"status"`
+					OwnerID     string `json:"ownerId"`
+					ContentType string `json:"contentType"`
+					Title       string `json:"title"`
+				}{
+					ID:     "job-456",
+					Title:  "Test Document",
+					Status: "Created",
+				},
 				UploadLinks: []struct {
 					URL     string            `json:"url"`
 					Headers map[string]string `json:"headers"`
@@ -114,7 +133,15 @@ func TestClient_Submit(t *testing.T) {
 
 						_ = json.NewEncoder(w).Encode(map[string]interface{}{
 							"success": true,
-							"jobId":   "test-job-789",
+							"job": map[string]interface{}{
+								"id":          "test-job-789",
+								"createTime":  1600344674,
+								"updateTime":  1600344674,
+								"status":      "Created",
+								"ownerId":     "owner-123",
+								"contentType": "application/pdf",
+								"title":       "Test Document",
+							},
 							"uploadLinks": []map[string]interface{}{
 								{
 									"url":     "https://test.storage.example.com/upload",
@@ -134,7 +161,19 @@ func TestClient_Submit(t *testing.T) {
 			},
 			want: &SubmitResponse{
 				Response: Response{Success: true},
-				JobID:    "test-job-789",
+				Job: struct {
+					ID          string `json:"id"`
+					CreateTime  int64  `json:"createTime"`
+					UpdateTime  int64  `json:"updateTime"`
+					Status      string `json:"status"`
+					OwnerID     string `json:"ownerId"`
+					ContentType string `json:"contentType"`
+					Title       string `json:"title"`
+				}{
+					ID:     "test-job-789",
+					Title:  "Test Document",
+					Status: "Created",
+				},
 				UploadLinks: []struct {
 					URL     string            `json:"url"`
 					Headers map[string]string `json:"headers"`
@@ -204,7 +243,7 @@ func TestClient_Submit(t *testing.T) {
 				assert.Contains(t, err.Error(), tt.errContains)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.want.JobID, got.JobID)
+				assert.Equal(t, tt.want.Job.ID, got.Job.ID)
 				assert.Equal(t, len(tt.want.UploadLinks), len(got.UploadLinks))
 				if len(got.UploadLinks) > 0 {
 					assert.Equal(t, tt.want.UploadLinks[0].URL, got.UploadLinks[0].URL)

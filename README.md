@@ -38,13 +38,50 @@ if err != nil {
     log.Fatal(err)
 }
 
-// Print with options
+// Print with options (automatically uses v1.1 API)
 options := &printix.PrintOptions{
     Copies:  2,
     Color:   true,
     Duplex:  "long-edge",
 }
 err = client.PrintFile(ctx, printerID, "My Document", "/path/to/document.pdf", options)
+```
+
+### Advanced Print Job Submission
+
+For more control over the print job submission, you can use the Submit method directly:
+
+```go
+// v1.0 API (query parameters)
+job := &printix.PrintJob{
+    PrinterID: printerID,
+    Title:     "My Document",
+    User:      "john.doe",
+    PDL:       "PCL5", // For non-PDF documents
+}
+
+// v1.1 API (JSON body with print settings)
+copies := 2
+job := &printix.PrintJob{
+    PrinterID:       printerID,
+    Title:          "My Document", 
+    User:           "john.doe",
+    UseV11:         true,
+    Color:          &[]bool{true}[0],
+    Duplex:         "LONG_EDGE", // NONE, SHORT_EDGE, LONG_EDGE
+    PageOrientation: "PORTRAIT",  // PORTRAIT, LANDSCAPE, AUTO
+    Copies:         &copies,
+    MediaSize:      "A4",
+    Scaling:        "FIT", // NOSCALE, SHRINK, FIT
+}
+
+submitResp, err := client.Submit(ctx, job)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Upload document and complete
+// ... (upload process)
 ```
 
 ### Managing Printers
@@ -103,6 +140,9 @@ if err != nil {
 
 // Cancel a job
 err = client.CancelJob(ctx, jobID)
+
+// Delete a job
+err = client.DeleteJob(ctx, jobID)
 ```
 
 ### Managing Users
@@ -120,7 +160,7 @@ opts := &printix.GetUsersOptions{
 }
 usersResp, err := client.GetUsers(ctx, opts)
 
-// Create a new user
+// Create a new user (regular user)
 user := &printix.User{
     Email:       "newuser@example.com",
     Name:        "New User",
@@ -128,6 +168,16 @@ user := &printix.User{
     Active:      true,
 }
 createdUser, err := client.CreateUser(ctx, user)
+
+// Create a guest user
+guestUser := &printix.User{
+    Email:    "guest@example.com",
+    FullName: "Guest User",
+    Role:     "GUEST_USER",
+    PIN:      "1234",     // Optional 4-digit PIN
+    Password: "password", // Optional password
+}
+createdGuest, err := client.CreateUser(ctx, guestUser)
 
 // Update user
 user.DisplayName = "Updated Name"
@@ -177,23 +227,26 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Parse the event
-    event, err := printix.ParseWebhookEvent(r)
+    // Parse the webhook payload
+    payload, err := printix.ParseWebhookPayload(r)
     if err != nil {
-        http.Error(w, "Invalid event", http.StatusBadRequest)
+        http.Error(w, "Invalid payload", http.StatusBadRequest)
         return
     }
 
-    // Handle specific event types
-    switch event.Type {
-    case "job.status.changed":
-        jobStatus, err := printix.ParseJobStatusChange(event)
-        if err != nil {
-            http.Error(w, "Invalid job status", http.StatusBadRequest)
-            return
+    // Process events
+    for _, event := range payload.Events {
+        if event.IsUserCreateEvent() {
+            fmt.Printf("User created: %s\n", event.Href)
         }
-        // Process job status change
-        fmt.Printf("Job %s status: %s\n", jobStatus.JobID, jobStatus.Status)
+        
+        if event.IsJobStatusChangeEvent() {
+            fmt.Printf("Job status change: %s\n", event.Href)
+        }
+        
+        // Get event timestamp
+        timestamp := event.GetTimestamp()
+        fmt.Printf("Event time: %s\n", timestamp)
     }
 
     w.WriteHeader(http.StatusOK)
@@ -237,12 +290,14 @@ client.SetTenant(tenantsResp.Tenants[0].ID)
 
 ## Supported File Types
 
-- PDF (application/pdf)
-- PCL (application/vnd.hp-PCL)
-- PostScript (application/postscript)
-- XPS (application/vnd.ms-xpsdocument)
-- Plain Text (text/plain)
-- ZPL (application/zpl) - for label printers
+- **PDF** (application/pdf) - Default, no PDL parameter needed
+- **PCL** (PCL5) - For PCL files, detected automatically by .pcl extension
+- **PostScript** (POSTSCRIPT) - For .ps files
+- **XPS** (XPS) - For .xps files
+- **ZPL** (ZPL) - For .zpl label printer files
+- **Plain Text** (text/plain) - For .txt files
+
+The client automatically detects file types and sets the appropriate PDL parameter for non-PDF files.
 
 ## Error Handling
 
