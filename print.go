@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"time"
 )
 
 // UserMapping represents user mapping for print job assignment.
@@ -200,9 +199,8 @@ func (c *Client) UploadDocument(ctx context.Context, uploadLink string, headers 
 		req.Header.Set(k, v)
 	}
 
-	// Use a separate HTTP client for cloud storage (no auth needed)
-	storageClient := &http.Client{Timeout: 60 * time.Second}
-	resp, err := storageClient.Do(req)
+	// Use the configured HTTP client for cloud storage uploads
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("uploading document: %w", err)
 	}
