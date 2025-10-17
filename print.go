@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 )
 
 // UserMapping represents user mapping for print job assignment.
@@ -119,9 +120,9 @@ func (c *Client) Submit(ctx context.Context, job *PrintJob) (*SubmitResponse, er
 		params.Set("test", "true")
 	}
 	// Handle releaseImmediately parameter (default is true)
-	if job.ReleaseImmediately != nil && !*job.ReleaseImmediately {
-		params.Set("releaseImmediately", "false")
-	} else if job.ReleaseImmediately == nil {
+	if job.ReleaseImmediately != nil {
+		params.Set("releaseImmediately", strconv.FormatBool(*job.ReleaseImmediately))
+	} else {
 		params.Set("releaseImmediately", "true")
 	}
 	
@@ -157,11 +158,7 @@ func (c *Client) Submit(ctx context.Context, job *PrintJob) (*SubmitResponse, er
 		if job.Scaling != "" {
 			v11Body["scaling"] = job.Scaling
 		}
-		if job.UserMapping != nil {
-			v11Body["userMapping"] = job.UserMapping
-		} else {
-			v11Body["userMapping"] = nil
-		}
+		v11Body["userMapping"] = job.UserMapping
 		
 		// Always send body for v1.1, even if empty
 		requestBody = v11Body
