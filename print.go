@@ -8,24 +8,34 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"time"
+	"strconv"
 )
+
+// UserMapping represents user mapping for print job assignment.
+type UserMapping struct {
+	Key   string `json:"key"`   // AzureObjectId, AzureUPN, SAMAccountName, OnPremImmutableId, OnPremUpn, Email
+	Value string `json:"value"` // Value to filter for
+}
 
 // PrintJob represents a print job submission.
 type PrintJob struct {
 	PrinterID     string         `json:"-"` // Not sent in body, used in URL
-	Title         string         `json:"title,omitempty"`
-	User          string         `json:"user,omitempty"`
-	PDL           string         `json:"PDL,omitempty"`
-	// v1.1 properties
-	Color           *bool  `json:"color,omitempty"`
-	Duplex          string `json:"duplex,omitempty"`      // NONE, SHORT_EDGE, LONG_EDGE
-	PageOrientation string `json:"page_orientation,omitempty"` // PORTRAIT, LANDSCAPE, AUTO
-	Copies          *int   `json:"copies,omitempty"`
-	MediaSize       string `json:"media_size,omitempty"`
-	Scaling         string `json:"scaling,omitempty"`     // NOSCALE, SHRINK, FIT
-	TestMode        bool   `json:"-"`                     // Not sent to API
-	UseV11          bool   `json:"-"`                     // Use v1.1 API
+	QueueID       string         `json:"-"` // Not sent in body, used in URL
+	Title         string         `json:"-"` // Not sent in body, used in URL query
+	User          string         `json:"-"` // Not sent in body, used in URL query
+	PDL           string         `json:"-"` // Not sent in body, used in URL query
+	// v1.1 properties (sent in body)
+	Color           *bool        `json:"color,omitempty"`
+	Duplex          string       `json:"duplex,omitempty"`            // NONE, SHORT_EDGE, LONG_EDGE
+	PageOrientation string       `json:"page_orientation,omitempty"`  // PORTRAIT, LANDSCAPE, AUTO
+	Copies          *int         `json:"copies,omitempty"`
+	MediaSize       string       `json:"media_size,omitempty"`
+	Scaling         string       `json:"scaling,omitempty"`           // NOSCALE, SHRINK, FIT
+	UserMapping     *UserMapping `json:"userMapping,omitempty"`
+	// Control fields
+	ReleaseImmediately *bool `json:"-"`  // Not sent in body, used in URL query
+	TestMode           bool  `json:"-"`  // Not sent in body, used in URL query
+	UseV11             bool  `json:"-"`  // Use v1.1 API
 }
 
 // SubmitResponse represents the response from submitting a print job.
@@ -33,25 +43,38 @@ type SubmitResponse struct {
 	Response
 	Job struct {
 		ID          string `json:"id"`
-		CreateTime  int64  `json:"createTime"`
-		UpdateTime  int64  `json:"updateTime"`
+		CreateTime  string `json:"createTime"`  // ISO format timestamp
+		UpdateTime  string `json:"updateTime"`  // ISO format timestamp
 		Status      string `json:"status"`
 		OwnerID     string `json:"ownerId"`
 		ContentType string `json:"contentType"`
 		Title       string `json:"title"`
+		Links       struct {
+			Self struct {
+				Href string `json:"href"`
+			} `json:"self"`
+			Printer struct {
+				Href string `json:"href"`
+			} `json:"printer"`
+			ChangeOwner struct {
+				Href      string `json:"href"`
+				Templated bool   `json:"templated"`
+			} `json:"changeOwner"`
+		} `json:"_links"`
 	} `json:"job"`
 	UploadLinks []struct {
 		URL     string            `json:"url"`
 		Headers map[string]string `json:"headers"`
-		Type    string            `json:"type"` // "Azure" or "GCP"
+		Type    string            `json:"type,omitempty"` // "Azure" or "GCP" - not always present
 	} `json:"uploadLinks"`
 	Links struct {
-		Self struct {
-			Href string `json:"href"`
-		} `json:"self"`
 		UploadCompleted struct {
 			Href string `json:"href"`
 		} `json:"uploadCompleted"`
+		ChangeOwner struct {
+			Href      string `json:"href"`
+			Templated bool   `json:"templated"`
+		} `json:"changeOwner"`
 	} `json:"_links"`
 }
 
@@ -62,11 +85,13 @@ type CompleteUploadRequest struct {
 
 // PrintOptions represents print job options.
 type PrintOptions struct {
-	Copies      int    `json:"copies,omitempty"`
-	Color       bool   `json:"color,omitempty"`
-	Duplex      string `json:"duplex,omitempty"` // "none", "long-edge", "short-edge"
-	PageRange   string `json:"pageRange,omitempty"`
-	Orientation string `json:"orientation,omitempty"` // "portrait", "landscape"
+	Copies          int    `json:"copies,omitempty"`      // Number of copies (positive integer)
+	Color           bool   `json:"color,omitempty"`       // true for color, false for monochrome
+	Duplex          string `json:"duplex,omitempty"`      // "none", "long-edge", "short-edge"
+	Orientation     string `json:"orientation,omitempty"` // "portrait", "landscape"
+	MediaSize       string `json:"mediaSize,omitempty"`   // Paper size: A0-A5, B4-B5, LETTER, LEGAL, etc.
+	Scaling         string `json:"scaling,omitempty"`     // "NOSCALE", "SHRINK", "FIT"
+	PageRange       string `json:"pageRange,omitempty"`   // Page range (not used in v1.1 API)
 }
 
 // Submit creates a new print job.
@@ -75,7 +100,10 @@ func (c *Client) Submit(ctx context.Context, job *PrintJob) (*SubmitResponse, er
 		return nil, fmt.Errorf("tenant ID is required for job submission")
 	}
 
-	endpoint := fmt.Sprintf(submitEndpoint, c.tenantID, job.PrinterID)
+	if job.QueueID == "" {
+		return nil, fmt.Errorf("queue ID is required for job submission")
+	}
+	endpoint := fmt.Sprintf(submitEndpoint, c.tenantID, job.PrinterID, job.QueueID)
 	
 	// Add query parameters
 	params := url.Values{}
@@ -91,6 +119,12 @@ func (c *Client) Submit(ctx context.Context, job *PrintJob) (*SubmitResponse, er
 	if c.testMode || job.TestMode {
 		params.Set("test", "true")
 	}
+	// Handle releaseImmediately parameter (default is true)
+	if job.ReleaseImmediately != nil {
+		params.Set("releaseImmediately", strconv.FormatBool(*job.ReleaseImmediately))
+	} else {
+		params.Set("releaseImmediately", "true")
+	}
 	
 	if len(params) > 0 {
 		endpoint += "?" + params.Encode()
@@ -103,7 +137,6 @@ func (c *Client) Submit(ctx context.Context, job *PrintJob) (*SubmitResponse, er
 	if job.UseV11 || job.Color != nil || job.Duplex != "" || job.PageOrientation != "" || 
 	   job.Copies != nil || job.MediaSize != "" || job.Scaling != "" {
 		headers["version"] = "1.1"
-		headers["Content-Type"] = "application/json"
 		
 		// Build v1.1 request body
 		v11Body := make(map[string]any)
@@ -125,10 +158,10 @@ func (c *Client) Submit(ctx context.Context, job *PrintJob) (*SubmitResponse, er
 		if job.Scaling != "" {
 			v11Body["scaling"] = job.Scaling
 		}
+		v11Body["userMapping"] = job.UserMapping
 		
-		if len(v11Body) > 0 {
-			requestBody = v11Body
-		}
+		// Always send body for v1.1, even if empty
+		requestBody = v11Body
 	}
 
 	resp, err := c.doRequestWithHeaders(ctx, http.MethodPost, endpoint, requestBody, headers)
@@ -163,9 +196,8 @@ func (c *Client) UploadDocument(ctx context.Context, uploadLink string, headers 
 		req.Header.Set(k, v)
 	}
 
-	// Use a separate HTTP client for cloud storage (no auth needed)
-	storageClient := &http.Client{Timeout: 60 * time.Second}
-	resp, err := storageClient.Do(req)
+	// Use the configured HTTP client for cloud storage uploads
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("uploading document: %w", err)
 	}
@@ -205,7 +237,7 @@ func (c *Client) CompleteUpload(ctx context.Context, completeURL string) error {
 }
 
 // PrintFile prints a file using Printix.
-func (c *Client) PrintFile(ctx context.Context, printerID, title, filePath string, options *PrintOptions) error {
+func (c *Client) PrintFile(ctx context.Context, printerID, queueID, title, filePath string, options *PrintOptions) error {
 	// Read the file
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -230,8 +262,9 @@ func (c *Client) PrintFile(ctx context.Context, printerID, title, filePath strin
 	// Create print job
 	job := &PrintJob{
 		PrinterID: printerID,
+		QueueID:   queueID,
 		Title:     title,
-		User:      "MTS API",
+		User:      c.userIdentifier,
 		PDL:       pdl,
 		TestMode:  c.testMode,
 	}
@@ -260,6 +293,13 @@ func (c *Client) PrintFile(ctx context.Context, printerID, title, filePath strin
 			job.PageOrientation = "PORTRAIT"
 		case "landscape":
 			job.PageOrientation = "LANDSCAPE"
+		}
+		// Add new v1.1 options
+		if options.MediaSize != "" {
+			job.MediaSize = options.MediaSize
+		}
+		if options.Scaling != "" {
+			job.Scaling = options.Scaling
 		}
 	}
 
@@ -288,12 +328,13 @@ func (c *Client) PrintFile(ctx context.Context, printerID, title, filePath strin
 }
 
 // PrintData prints raw data using Printix.
-func (c *Client) PrintData(ctx context.Context, printerID, title string, data []byte, pdl string, options *PrintOptions) error {
+func (c *Client) PrintData(ctx context.Context, printerID, queueID, title string, data []byte, pdl string, options *PrintOptions) error {
 	// Create print job
 	job := &PrintJob{
 		PrinterID: printerID,
+		QueueID:   queueID,
 		Title:     title,
-		User:      "MTS API",
+		User:      c.userIdentifier,
 		PDL:       pdl,
 		TestMode:  c.testMode,
 	}
@@ -322,6 +363,13 @@ func (c *Client) PrintData(ctx context.Context, printerID, title string, data []
 			job.PageOrientation = "PORTRAIT"
 		case "landscape":
 			job.PageOrientation = "LANDSCAPE"
+		}
+		// Add new v1.1 options
+		if options.MediaSize != "" {
+			job.MediaSize = options.MediaSize
+		}
+		if options.Scaling != "" {
+			job.Scaling = options.Scaling
 		}
 	}
 

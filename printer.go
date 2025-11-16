@@ -10,16 +10,16 @@ import (
 
 // Printer represents a Printix printer.
 type Printer struct {
-	ID               string                 `json:"id"`
-	Name             string                 `json:"name"`
-	ConnectionStatus string                 `json:"connectionStatus,omitempty"`
-	PrinterSignID    string                 `json:"printerSignId,omitempty"`
-	Location         string                 `json:"location,omitempty"`
-	Model            string                 `json:"model,omitempty"`
-	Vendor           string                 `json:"vendor,omitempty"`
-	SerialNo         string                 `json:"serialNo,omitempty"`
-	Capabilities     PrinterCapabilities    `json:"capabilities,omitempty"`
-	Links            map[string]interface{} `json:"_links,omitempty"`
+	ID               string              `json:"id"`
+	Name             string              `json:"name"`
+	ConnectionStatus string              `json:"connectionStatus,omitempty"`
+	PrinterSignID    string              `json:"printerSignId,omitempty"`
+	Location         string              `json:"location,omitempty"`
+	Model            string              `json:"model,omitempty"`
+	Vendor           string              `json:"vendor,omitempty"`
+	SerialNo         string              `json:"serialNo,omitempty"`
+	Capabilities     PrinterCapabilities `json:"capabilities,omitempty"`
+	Links            PrinterLinks        `json:"_links,omitempty"`
 }
 
 // PrinterCapabilities represents printer capabilities.
@@ -30,7 +30,7 @@ type PrinterCapabilities struct {
 		} `json:"media_size,omitempty"`
 		SupportedContentType []ContentType `json:"supported_content_type,omitempty"`
 		Copies               struct {
-			Default int `json:"default,omitempty"`
+			Default int `json:"defaultz,omitempty"`
 			Max     int `json:"max,omitempty"`
 		} `json:"copies,omitempty"`
 		Color struct {
@@ -76,18 +76,38 @@ type LocalizedString struct {
 	Value  string `json:"value"`
 }
 
+// PrinterLinks represents HAL links for a printer.
+type PrinterLinks struct {
+	Self   Link `json:"self"`
+	Submit Link `json:"submit"`
+	Jobs   Link `json:"jobs"`
+}
+
+// Link represents a HAL link.
+type Link struct {
+	Href      string `json:"href"`
+	Templated bool   `json:"templated,omitempty"`
+}
+
 // PrintersResponse represents the HAL+JSON response from listing printers.
 type PrintersResponse struct {
-	Links    map[string]interface{} `json:"_links"`
-	Success  bool                   `json:"success"`
-	Message  string                 `json:"message"`
-	Printers []Printer              `json:"printers"`
+	Links    PrintersResponseLinks `json:"_links"`
+	Success  bool                  `json:"success"`
+	Message  string                `json:"message"`
+	Printers []Printer             `json:"printers"`
 	Page     struct {
 		Size          int `json:"size"`
 		TotalElements int `json:"totalElements"`
 		TotalPages    int `json:"totalPages"`
 		Number        int `json:"number"`
 	} `json:"page"`
+}
+
+// PrintersResponseLinks represents HAL links for printers response.
+type PrintersResponseLinks struct {
+	Self Link  `json:"self"`
+	Next *Link `json:"next,omitempty"`
+	Prev *Link `json:"prev,omitempty"`
 }
 
 // GetPrintersOptions represents options for listing printers.
@@ -183,9 +203,9 @@ func (c *Client) GetPrinter(ctx context.Context, printerID string) (*Printer, er
 	}
 
 	var printerResp struct {
-		Links   map[string]interface{} `json:"_links"`
-		Success bool                   `json:"success"`
-		Message string                 `json:"message"`
+		Links   PrinterLinks `json:"_links"`
+		Success bool         `json:"success"`
+		Message string       `json:"message"`
 		Printer
 	}
 
