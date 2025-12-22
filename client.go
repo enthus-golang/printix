@@ -17,7 +17,7 @@ const (
 	defaultBaseURL         = "https://api.printix.net"
 	defaultAuthURL         = "https://auth.printix.net/oauth/token"
 	testAuthURL            = "https://auth.testenv.printix.net/oauth/token"
-	submitEndpoint         = "/cloudprint/tenants/%s/printers/%s/jobs"
+	submitEndpoint         = "/cloudprint/tenants/%s/printers/%s/queues/%s/submit"
 	completeUploadEndpoint = "/cloudprint/completeUpload"
 	printersEndpoint       = "/cloudprint/tenants/%s/printers"
 	jobsEndpoint           = "/cloudprint/tenants/%s/jobs"
@@ -38,6 +38,7 @@ type Client struct {
 	testMode        bool
 	rateLimitRemain int
 	rateLimitReset  time.Time
+	userIdentifier  string
 }
 
 // Option is a function that configures the client.
@@ -79,14 +80,22 @@ func WithAuthURL(authURL string) Option {
 	}
 }
 
+// WithUserIdentifier sets the user identifier for print jobs.
+func WithUserIdentifier(userIdentifier string) Option {
+	return func(c *Client) {
+		c.userIdentifier = userIdentifier
+	}
+}
+
 // New creates a new Printix client.
 func New(clientID, clientSecret string, opts ...Option) *Client {
 	c := &Client{
-		httpClient:   &http.Client{Timeout: 30 * time.Second},
-		baseURL:      defaultBaseURL,
-		authURL:      defaultAuthURL,
-		clientID:     clientID,
-		clientSecret: clientSecret,
+		httpClient:     &http.Client{Timeout: 30 * time.Second},
+		baseURL:        defaultBaseURL,
+		authURL:        defaultAuthURL,
+		clientID:       clientID,
+		clientSecret:   clientSecret,
+		userIdentifier: "API Client",
 	}
 
 	for _, opt := range opts {
@@ -179,7 +188,7 @@ func (c *Client) doRequestWithHeaders(ctx context.Context, method, endpoint stri
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	
+
 	// Add custom headers
 	for key, value := range customHeaders {
 		req.Header.Set(key, value)
